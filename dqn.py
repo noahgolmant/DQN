@@ -38,17 +38,17 @@ class QNet:
         self.conv3_w = weight_variable([3, 3, 64, 64])
         self.conv3_b = bias_variable([64])
 
-        self.fc_w = weight_variable([3136, 512])
+        self.fc_w = weight_variable([7744, 512])
         self.fc_b = bias_variable([512])
 
         self.num_actions = num_actions
         self.out_w = weight_variable([512, num_actions])
         self.out_b = bias_variable([num_actions])
 
-        stateInput = tf.placeholder("float", [None, IMAGE_SIZE, IMAGE_SIZE, NUM_CHANNELS])
+        self.stateInput = tf.placeholder("float", [None, IMAGE_SIZE, IMAGE_SIZE, NUM_CHANNELS])
 
         # hidden layers
-        h_conv1 = tf.nn.conv2d(stateInput, self.conv1_w, strides = [1, 4, 4, 1], padding='SAME')
+        h_conv1 = tf.nn.conv2d(self.stateInput, self.conv1_w, strides = [1, 4, 4, 1], padding='SAME')
         h_relu1 = tf.nn.relu(tf.nn.bias_add(h_conv1, self.conv1_b))
 
         h_conv2 = tf.nn.conv2d(h_relu1, self.conv2_w, strides = [1, 2, 2, 1], padding='SAME')
@@ -59,9 +59,9 @@ class QNet:
 
         # reshape for fully connected layer
         relu_shape = h_relu3.get_shape().as_list()
-        reshape = tf.reshape(
-            h_relu3,
-            [relu_shape[0], relu_shape[1] * relu_shape[2] * relu_shape[3]])
+        print(relu_shape)
+        reshape = tf.reshape(h_relu3,
+            [-1, relu_shape[1] * relu_shape[2] * relu_shape[3]])
         # fully connected and output layers
         hidden = tf.nn.relu(tf.matmul(reshape, self.fc_w) + self.fc_b)
 
@@ -80,12 +80,18 @@ class DQN:
         self.epsilon = INITIAL_EPSILON
         self.actions = actions
 
-        self.currentQNet = QNet()
-        self.targetQNet = QNet()
+        self.currentQNet = QNet(len(actions))
+        self.targetQNet = QNet(len(actions))
+
+        self.actionInput = tf.placeholder("float", [None, len(actions)])
+        self.yInput = tf.placeholder("float", [None])
+        self.Q_action = tf.reduce_sum(tf.mul(self.currentQNet.QValue, self.actionInput), reduction_indices=1)
+        self.loss = tf.reduce_mean(tf.square(self.yInput - self.Q_action))
+        self.trainStep = tf.train.RMSPropOptimizer(RMS_LEARNING_RATE, RMS_DECAY, RMS_MOMENTUM, RMS_EPSILON).minimize(self.loss)
 
     def copyCurrentToTargetOperation(self):
-        targetProps = self.targetQNet.properties
-        currentProps = self.currentQNet.properties
+        targetProps = self.targetQNet.properties()
+        currentProps = self.currentQNet.properties()
         props = zip(targetProps, currentProps)
         return [targetVar.assign(currVar) for targetVar, currVar in props]
 
@@ -105,6 +111,8 @@ class DQN:
         self.replayMemory.append((state, action, reward, newState, terminalState))
 
     def sampleExperiences(self):
+        if len(self.replayMemory) < BATCH_SIZE:
+            return list(self.replayMemory)
         return random.sample(self.replayMemory, BATCH_SIZE)
 
 

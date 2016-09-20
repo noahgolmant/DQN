@@ -9,22 +9,28 @@ class Atari:
         self.max_frames_per_episode = self.ale.getInt("max_num_frames_per_episode")
         self.ale.setInt("random_seed",123)
         self.ale.setInt("frame_skip",4)
-        self.ale.loadROM('game/' +rom_name)
+        self.ale.loadROM(rom_name)
         self.screen_width,self.screen_height = self.ale.getScreenDims()
         self.legal_actions = self.ale.getMinimalActionSet()
         self.action_map = dict()
         for i in range(len(self.legal_actions)):
             self.action_map[self.legal_actions[i]] = i
-        #print len(self.legal_actions)
+        print len(self.legal_actions)
         self.windowname = rom_name
         cv2.startWindowThread()
         cv2.namedWindow(rom_name)
+
+    def preprocess(self, image):
+        image = cv2.cvtColor(cv2.resize(image, (84, 110)), cv2.COLOR_BGR2GRAY)
+        image = image[26:110,:]
+        ret, image = cv2.threshold(image,1,255,cv2.THRESH_BINARY)
+        return np.reshape(image,(84,84, 1))
 
     def get_image(self):
         numpy_surface = np.zeros(self.screen_height*self.screen_width*3, dtype=np.uint8)
         self.ale.getScreenRGB(numpy_surface)
         image = np.reshape(numpy_surface, (self.screen_height, self.screen_width, 3))
-        return image
+        return self.preprocess(image)
 
     def newGame(self):
         self.ale.reset_game()
