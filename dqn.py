@@ -6,14 +6,17 @@ import random
 NUM_CHANNELS = 4 # image channels
 IMAGE_SIZE = 84  # 84x84 pixel images
 SEED = None # random initialization seed
-NUM_ACTIONS = 4  # number of actions for this game
+STATE_SIZE = 4
+NUM_ACTIONS = 2  # number of actions for this game
 BATCH_SIZE = 100
-INITIAL_EPSILON = 1.0
-GAMMA = 0.99
+INITIAL_EPSILON = 1
+FINAL_EPSILON = 0.1
+GAMMA = 0.9
 RMS_LEARNING_RATE = 0.00025
 RMS_DECAY = 0.99
 RMS_MOMENTUM = 0.0
 RMS_EPSILON = 1e-6
+MAX_REPLAY_MEMORY = 10000
 
 def weight_variable(shape, sdev=0.1):
     initial = tf.truncated_normal(shape, stddev=sdev, seed=SEED)
@@ -29,49 +32,54 @@ class QNet:
         # so they are instance-specific properties
 
         # weights
-        self.conv1_w = weight_variable([8, 8, NUM_CHANNELS, 32])
-        self.conv1_b = bias_variable([32])
+        # self.conv1_w = weight_variable([8, 8, NUM_CHANNELS, 32])
+        # self.conv1_b = bias_variable([32])
         
-        self.conv2_w = weight_variable([4, 4, 32, 64])
-        self.conv2_b = bias_variable([64])
+        # self.conv2_w = weight_variable([4, 4, 32, 64])
+        # self.conv2_b = bias_variable([64])
 
-        self.conv3_w = weight_variable([3, 3, 64, 64])
-        self.conv3_b = bias_variable([64])
+        # self.conv3_w = weight_variable([3, 3, 64, 64])
+        # self.conv3_b = bias_variable([64])
 
-        self.fc_w = weight_variable([7744, 512])
-        self.fc_b = bias_variable([512])
+        # self.fc_w = weight_variable([7744, 512])
+        # self.fc_b = bias_variable([512])
+        self.fc_w = weight_variable([4, 16])
+        self.fc_b = bias_variable([16])
 
         self.num_actions = num_actions
-        self.out_w = weight_variable([512, num_actions])
+        self.out_w = weight_variable([16, num_actions]) #16 was 512 for atari
         self.out_b = bias_variable([num_actions])
 
-        self.stateInput = tf.placeholder("float", [None, IMAGE_SIZE, IMAGE_SIZE, NUM_CHANNELS])
+        self.stateInput = tf.placeholder("float", [None, STATE_SIZE])
 
         # hidden layers
-        h_conv1 = tf.nn.conv2d(self.stateInput, self.conv1_w, strides = [1, 4, 4, 1], padding='SAME')
-        h_relu1 = tf.nn.relu(tf.nn.bias_add(h_conv1, self.conv1_b))
+        # h_conv1 = tf.nn.conv2d(self.stateInput, self.conv1_w, strides = [1, 4, 4, 1], padding='SAME')
+        # h_relu1 = tf.nn.relu(tf.nn.bias_add(h_conv1, self.conv1_b))
 
-        h_conv2 = tf.nn.conv2d(h_relu1, self.conv2_w, strides = [1, 2, 2, 1], padding='SAME')
-        h_relu2 = tf.nn.relu(tf.nn.bias_add(h_conv2, self.conv2_b))
+        # h_conv2 = tf.nn.conv2d(h_relu1, self.conv2_w, strides = [1, 2, 2, 1], padding='SAME')
+        # h_relu2 = tf.nn.relu(tf.nn.bias_add(h_conv2, self.conv2_b))
 
-        h_conv3 = tf.nn.conv2d(h_relu2, self.conv3_w, strides = [1, 1, 1, 1], padding='SAME')
-        h_relu3 = tf.nn.relu(tf.nn.bias_add(h_conv3, self.conv3_b))
+        # h_conv3 = tf.nn.conv2d(h_relu2, self.conv3_w, strides = [1, 1, 1, 1], padding='SAME')
+        # h_relu3 = tf.nn.relu(tf.nn.bias_add(h_conv3, self.conv3_b))
 
         # reshape for fully connected layer
-        relu_shape = h_relu3.get_shape().as_list()
-        print(relu_shape)
-        reshape = tf.reshape(h_relu3,
-            [-1, relu_shape[1] * relu_shape[2] * relu_shape[3]])
+        # relu_shape = h_relu3.get_shape().as_list()
+        # print(relu_shape)
+        # reshape = tf.reshape(h_relu3,
+        #     [-1, relu_shape[1] * relu_shape[2] * relu_shape[3]])
         # fully connected and output layers
+        stateDims = np.prod(self.stateInput.get_shape().as_list()[1:])
+        reshape = tf.reshape(self.stateInput, [-1, stateDims])
         hidden = tf.nn.relu(tf.matmul(reshape, self.fc_w) + self.fc_b)
 
         # calculate the Q value as output
         self.QValue = tf.matmul(hidden, self.out_w) + self.out_b
 
     def properties(self):
-        return (self.conv1_w, self.conv1_b, self.conv2_w, self.conv2_b,
-                self.conv3_w, self.conv3_b, self.fc_w, self.fc_b,
-                self.out_w, self.out_b)
+        return (self.fc_w, self.fc_b, self.out_w, self.out_b)
+        # return (self.conv1_w, self.conv1_b, self.conv2_w, self.conv2_b,
+        #         self.conv3_w, self.conv3_b, self.fc_w, self.fc_b,
+        #         self.out_w, self.out_b)
 
 class DQN:
     def __init__(self, actions):
@@ -101,15 +109,17 @@ class DQN:
         if random.random() < self.epsilon:
             actionInd = random.randrange(0, len(self.actions))
         else:
-            qOut = self.currentQNet.QValue.eval(feed_dict = { self.stateInput: [currentState] } )
+            qOut = self.currentQNet.QValue.eval(feed_dict = { self.currentQNet.stateInput: [currentState] } )
             actionInd = np.argmax(qOut)
         action[actionInd] = 1.0
 
         return action
 
     def storeExperience(self, state, action, reward, newState, terminalState):
+        if len(self.replayMemory) > MAX_REPLAY_MEMORY:
+            self.replayMemory.popleft()
         self.replayMemory.append((state, action, reward, newState, terminalState))
-
+        
     def sampleExperiences(self):
         if len(self.replayMemory) < BATCH_SIZE:
             return list(self.replayMemory)
